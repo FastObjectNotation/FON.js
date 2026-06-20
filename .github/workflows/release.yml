@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-native:
+    name: Build cdylib (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: fon_native.dll
+            artifact_name: fon_native-windows-x64.dll
+          - os: ubuntu-latest
+            artifact: libfon_native.so
+            artifact_name: libfon_native-linux-x64.so
+          - os: macos-latest
+            artifact: libfon_native.dylib
+            artifact_name: libfon_native-macos-arm64.dylib
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native -> target
+
+      - name: Build cdylib
+        run: cargo build --release --manifest-path native/Cargo.toml
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp native/target/release/${{ matrix.artifact }} dist/${{ matrix.artifact_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.artifact_name }}
+
+  publish:
+    name: Publish to GitHub Packages & create Release
+    runs-on: ubuntu-latest
+    needs: build-native
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js (GitHub Packages registry)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@fastobjectnotation'
+
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Publish to GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true

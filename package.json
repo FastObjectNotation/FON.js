@@ -1,0 +1,32 @@
+{
+  "name": "@fastobjectnotation/fon",
+  "version": "0.2.1",
+  "description": "JavaScript/Node.js bindings for FON (Fast Object Notation) via koffi FFI",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test test/roundtrip.test.js",
+    "build": "cargo build --release --manifest-path native/Cargo.toml"
+  },
+  "keywords": [
+    "fon",
+    "fast-object-notation",
+    "serialization",
+    "ffi",
+    "koffi"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "koffi": "^2.9.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FastObjectNotation/FON.js.git"
+  }
+}

@@ -1,0 +1,5 @@
+native/target/
+**/target/
+node_modules/
+/docs/
+.superpowers/

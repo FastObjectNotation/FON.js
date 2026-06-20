@@ -1,0 +1,3 @@
+[submodule "native/fon-rust"]
+	path = native/fon-rust
+	url = https://github.com/FastObjectNotation/FON.rust.git
