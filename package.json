@@ -4,9 +4,17 @@
   "description": "JavaScript/Node.js bindings for FON (Fast Object Notation) via koffi FFI",
   "type": "module",
   "main": "./src/index.js",
+  "types": "./src/index.d.ts",
   "exports": {
-    ".": "./src/index.js"
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
   },
+  "files": [
+    "src/index.js",
+    "src/index.d.ts"
+  ],
   "scripts": {
     "test": "node --test test/roundtrip.test.js",
     "build": "cargo build --release --manifest-path native/Cargo.toml"

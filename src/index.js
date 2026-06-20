@@ -7,16 +7,10 @@
 //     Caller MUST NOT free or use the collection handle afterwards.
 //   - fon_collection_add_collection(parent, key, child):  transfers ownership of child
 //     to parent. Caller MUST NOT free or use child afterwards.
-//   - fon_collection_get_collection / fon_dump_get:  returns a BORROWED handle.
-//     Caller MUST NOT free it.
-//
-// Deferred / not yet wrapped:
-//   - fon_collection_add_collection / fon_collection_get_collection (nested objects)
-//   - fon_collection_add_collection_array / fon_collection_get_collection_array
-//   - fon_collection_add_int_array / fon_collection_get_int_array
-//   - fon_collection_add_float_array / fon_collection_get_float_array
-//   - fon_serialize_to_file / fon_deserialize_from_file
-//   - fon_set_raw_unpack / fon_set_max_depth
+//   - fon_collection_add_collection_array(parent, key, children[]):  transfers ownership
+//     of every child handle. Caller MUST NOT free or use any of them afterwards.
+//   - fon_collection_get_collection / fon_collection_get_collection_array /
+//     fon_dump_get:  returns BORROWED handle(s).  Caller MUST NOT free them.
 
 import koffi from 'koffi';
 import { fileURLToPath } from 'url';
@@ -155,6 +149,84 @@ const ffi_fon_deserialize_collection_from_buffer = lib.func('fon_deserialize_col
     koffi.inout(koffi.pointer(FonError)),
 ]);
 
+// ==================== CONFIGURATION FFI ====================
+
+// fon_set_raw_unpack(enable: int) -> void
+const ffi_fon_set_raw_unpack = lib.func('fon_set_raw_unpack', 'void', ['int']);
+
+// fon_set_max_depth(depth: int) -> void
+const ffi_fon_set_max_depth = lib.func('fon_set_max_depth', 'void', ['int']);
+
+// ==================== FILE I/O FFI ====================
+
+// fon_serialize_to_file(dump, path, max_threads, error*) -> int
+const ffi_fon_serialize_to_file = lib.func('fon_serialize_to_file', 'int', [
+    'void *',   // dump
+    'str',      // path (UTF-8 C string)
+    'int',      // max_threads
+    koffi.inout(koffi.pointer(FonError)),
+]);
+
+// fon_deserialize_from_file(path, max_threads, error*) -> void*
+const ffi_fon_deserialize_from_file = lib.func('fon_deserialize_from_file', 'void *', [
+    'str',      // path (UTF-8 C string)
+    'int',      // max_threads
+    koffi.inout(koffi.pointer(FonError)),
+]);
+
+// ==================== ARRAY FFI ====================
+
+// fon_collection_add_int_array(collection, key, values*, count, error*) -> int
+const ffi_fon_collection_add_int_array = lib.func('fon_collection_add_int_array', 'int', [
+    'void *', 'str', 'int *', 'int64', koffi.inout(koffi.pointer(FonError)),
+]);
+
+// fon_collection_get_int_array(collection, key, buffer*|null, buffer_size, actual_size*, error*) -> int
+const ffi_fon_collection_get_int_array = lib.func('fon_collection_get_int_array', 'int', [
+    'void *', 'str', 'int *', 'int64',
+    koffi.out(koffi.pointer('int64')),
+    koffi.inout(koffi.pointer(FonError)),
+]);
+
+// fon_collection_add_float_array(collection, key, values*, count, error*) -> int
+const ffi_fon_collection_add_float_array = lib.func('fon_collection_add_float_array', 'int', [
+    'void *', 'str', 'float *', 'int64', koffi.inout(koffi.pointer(FonError)),
+]);
+
+// fon_collection_get_float_array(collection, key, buffer*|null, buffer_size, actual_size*, error*) -> int
+const ffi_fon_collection_get_float_array = lib.func('fon_collection_get_float_array', 'int', [
+    'void *', 'str', 'float *', 'int64',
+    koffi.out(koffi.pointer('int64')),
+    koffi.inout(koffi.pointer(FonError)),
+]);
+
+// ==================== NESTED COLLECTION FFI ====================
+
+// fon_collection_add_collection(parent, key, child, error*) -> int  [ownership transfer]
+const ffi_fon_collection_add_collection = lib.func('fon_collection_add_collection', 'int', [
+    'void *', 'str', 'void *', koffi.inout(koffi.pointer(FonError)),
+]);
+
+// fon_collection_get_collection(parent, key, error*) -> void*  [borrowed]
+const ffi_fon_collection_get_collection = lib.func('fon_collection_get_collection', 'void *', [
+    'void *', 'str', koffi.inout(koffi.pointer(FonError)),
+]);
+
+// fon_collection_add_collection_array(parent, key, children**, count, error*) -> int  [ownership transfer]
+// Pass a JS array of opaque handles; koffi maps them into a void** on the native side.
+const ffi_fon_collection_add_collection_array = lib.func('fon_collection_add_collection_array', 'int', [
+    'void *', 'str', 'void **', 'int64', koffi.inout(koffi.pointer(FonError)),
+]);
+
+// Size-query variant: pass uint8* null buffer to get the element count.
+const ffi_fon_collection_get_collection_array_size = lib.func('fon_collection_get_collection_array', 'int', [
+    'void *', 'str', 'uint8 *', 'int64',
+    koffi.out(koffi.pointer('int64')),
+    koffi.inout(koffi.pointer(FonError)),
+]);
+// Fill variant: created dynamically per call using a fixed-size koffi.array type.
+// (No single global declaration here; see getCollectionArray implementation.)
+
 // ==================== HELPERS ====================
 
 function decodeErrorStruct(err) {
@@ -208,6 +280,22 @@ function serializeHandleToString(ptr, extraArgs, ffiFunc) {
  */
 function nativeVersion() {
     return ffi_fon_version();
+}
+
+/**
+ * Enables or disables raw unpack mode for deserialization (global setting).
+ * @param {boolean} value
+ */
+function setRawUnpack(value) {
+    ffi_fon_set_raw_unpack(value ? 1 : 0);
+}
+
+/**
+ * Sets the maximum recursion depth for deserialization (global setting).
+ * @param {number} depth
+ */
+function setMaxDepth(depth) {
+    ffi_fon_set_max_depth(depth | 0);
 }
 
 /**
@@ -285,6 +373,77 @@ class FonCollection {
         return this;
     }
 
+    /**
+     * Stores an array of 32-bit integers under key. The JS array is copied into
+     * a native Int32Array before the FFI call.
+     * @param {string} key
+     * @param {number[]} values
+     */
+    addIntArray(key, values) {
+        this.assertAlive();
+        const native = new Int32Array(values);
+        const err = makeError();
+        const rc = ffi_fon_collection_add_int_array(this.handle, key, native, BigInt(native.length), err);
+        if (rc !== FON_OK) { throw decodeErrorStruct(err); }
+        return this;
+    }
+
+    /**
+     * Stores an array of 32-bit floats under key.
+     * @param {string} key
+     * @param {number[]} values
+     */
+    addFloatArray(key, values) {
+        this.assertAlive();
+        const native = new Float32Array(values);
+        const err = makeError();
+        const rc = ffi_fon_collection_add_float_array(this.handle, key, native, BigInt(native.length), err);
+        if (rc !== FON_OK) { throw decodeErrorStruct(err); }
+        return this;
+    }
+
+    /**
+     * Adds a nested FonCollection under key.
+     * OWNERSHIP TRANSFER: child.disposed is set to true; do not use or free child.
+     * @param {string} key
+     * @param {FonCollection} child
+     */
+    addCollection(key, child) {
+        this.assertAlive();
+        child.assertAlive();
+        const err = makeError();
+        const rc = ffi_fon_collection_add_collection(this.handle, key, child.handle, err);
+        if (rc !== FON_OK) { throw decodeErrorStruct(err); }
+        child.disposed = true; // ownership transferred to parent
+        return this;
+    }
+
+    /**
+     * Adds an array of nested FonCollections under key.
+     * OWNERSHIP TRANSFER: every element's disposed is set to true.
+     * @param {string} key
+     * @param {FonCollection[]} children
+     */
+    addCollectionArray(key, children) {
+        this.assertAlive();
+        for (const child of children) {
+            child.assertAlive();
+        }
+        // Build a Buffer of raw pointer values (8 bytes each on 64-bit).
+        // koffi expects a 'void **' — pass an array of opaque handle values.
+        // We use koffi's ability to accept a JS array of void* when the param type is 'void **'.
+        const handles = children.map((c) => c.handle);
+        const err = makeError();
+        const rc = ffi_fon_collection_add_collection_array(
+            this.handle, key, handles, BigInt(handles.length), err
+        );
+        if (rc !== FON_OK) { throw decodeErrorStruct(err); }
+        for (const child of children) {
+            child.disposed = true; // ownership transferred to parent
+        }
+        return this;
+    }
+
     // -- Get methods --
 
     getInt(key) {
@@ -337,6 +496,106 @@ class FonCollection {
         let end = buf.indexOf(0);
         if (end === -1) { end = buf.length; }
         return buf.slice(0, end).toString('utf8');
+    }
+
+    /**
+     * Returns an array of 32-bit integers stored under key (two-call pattern).
+     * @param {string} key
+     * @returns {number[]}
+     */
+    getIntArray(key) {
+        this.assertAlive();
+        // Call 1: null buffer → read actual element count.
+        const sizeOut = [0n];
+        const err1 = makeError();
+        const rc1 = ffi_fon_collection_get_int_array(this.handle, key, null, 0n, sizeOut, err1);
+        if (rc1 !== FON_OK) { throw decodeErrorStruct(err1); }
+        const count = Number(sizeOut[0]);
+        if (count === 0) { return []; }
+        // Call 2: allocate typed buffer and fill.
+        const buf = new Int32Array(count);
+        const sizeOut2 = [0n];
+        const err2 = makeError();
+        const rc2 = ffi_fon_collection_get_int_array(this.handle, key, buf, BigInt(count), sizeOut2, err2);
+        if (rc2 !== FON_OK) { throw decodeErrorStruct(err2); }
+        return Array.from(buf);
+    }
+
+    /**
+     * Returns an array of 32-bit floats stored under key (two-call pattern).
+     * @param {string} key
+     * @returns {number[]}
+     */
+    getFloatArray(key) {
+        this.assertAlive();
+        // Call 1: null buffer → read actual element count.
+        const sizeOut = [0n];
+        const err1 = makeError();
+        const rc1 = ffi_fon_collection_get_float_array(this.handle, key, null, 0n, sizeOut, err1);
+        if (rc1 !== FON_OK) { throw decodeErrorStruct(err1); }
+        const count = Number(sizeOut[0]);
+        if (count === 0) { return []; }
+        // Call 2: allocate typed buffer and fill.
+        const buf = new Float32Array(count);
+        const sizeOut2 = [0n];
+        const err2 = makeError();
+        const rc2 = ffi_fon_collection_get_float_array(this.handle, key, buf, BigInt(count), sizeOut2, err2);
+        if (rc2 !== FON_OK) { throw decodeErrorStruct(err2); }
+        return Array.from(buf);
+    }
+
+    /**
+     * Returns a BORROWED FonCollection stored under key. Do NOT free it.
+     * @param {string} key
+     * @returns {FonCollection}
+     */
+    getCollection(key) {
+        this.assertAlive();
+        const err = makeError();
+        const ptr = ffi_fon_collection_get_collection(this.handle, key, err);
+        if (!ptr) { throw decodeErrorStruct(err); }
+        const col = Object.create(FonCollection.prototype);
+        col.handle = ptr;
+        col.disposed = false;
+        return col;
+    }
+
+    /**
+     * Returns an array of BORROWED FonCollections stored under key (two-call pattern).
+     * Do NOT free any of the returned handles.
+     * @param {string} key
+     * @returns {FonCollection[]}
+     */
+    getCollectionArray(key) {
+        this.assertAlive();
+        // Call 1: pass null uint8* buffer to query element count only.
+        const sizeOut = [0n];
+        const err1 = makeError();
+        const rc1 = ffi_fon_collection_get_collection_array_size(
+            this.handle, key, null, 0n, sizeOut, err1
+        );
+        if (rc1 !== FON_OK) { throw decodeErrorStruct(err1); }
+        const count = Number(sizeOut[0]);
+        if (count === 0) { return []; }
+        // Call 2: create a fixed-size void* array type for this count so koffi
+        // can properly fill each pointer slot on return.
+        const PtrArrayN = koffi.array('void *', count);
+        const ffi_fill = lib.func('fon_collection_get_collection_array', 'int', [
+            'void *', 'str', koffi.out(koffi.pointer(PtrArrayN)), 'int64',
+            koffi.out(koffi.pointer('int64')),
+            koffi.inout(koffi.pointer(FonError)),
+        ]);
+        const ptrs = [[]];
+        const sizeOut2 = [0n];
+        const err2 = makeError();
+        const rc2 = ffi_fill(this.handle, key, ptrs, BigInt(count), sizeOut2, err2);
+        if (rc2 !== FON_OK) { throw decodeErrorStruct(err2); }
+        return ptrs[0].map((ptr) => {
+            const col = Object.create(FonCollection.prototype);
+            col.handle = ptr;
+            col.disposed = false;
+            return col;
+        });
     }
 
     // -- Serialization --
@@ -440,6 +699,18 @@ class FonDump {
     }
 
     /**
+     * Writes the dump directly to a file at the given path.
+     * @param {string} filePath
+     * @param {number} [maxThreads=0]
+     */
+    serializeToFile(filePath, maxThreads = 0) {
+        this.assertAlive();
+        const err = makeError();
+        const rc = ffi_fon_serialize_to_file(this.handle, filePath, maxThreads | 0, err);
+        if (rc !== FON_OK) { throw decodeErrorStruct(err); }
+    }
+
+    /**
      * Parses a multi-line FON buffer into a new FonDump.
      * @param {string} text
      * @param {number} [maxThreads=0]
@@ -457,4 +728,20 @@ class FonDump {
     }
 }
 
-export { FonCollection, FonDump, nativeVersion };
+/**
+ * Reads a FON dump directly from a file.
+ * @param {string} filePath
+ * @param {number} [maxThreads=0]
+ * @returns {FonDump}
+ */
+function deserializeDumpFromFile(filePath, maxThreads = 0) {
+    const err = makeError();
+    const handle = ffi_fon_deserialize_from_file(filePath, maxThreads | 0, err);
+    if (!handle) { throw decodeErrorStruct(err); }
+    const dump = Object.create(FonDump.prototype);
+    dump.handle = handle;
+    dump.disposed = false;
+    return dump;
+}
+
+export { FonCollection, FonDump, nativeVersion, setRawUnpack, setMaxDepth, deserializeDumpFromFile };
