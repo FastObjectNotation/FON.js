@@ -12,9 +12,9 @@ import { FonCollection, FonDump, nativeVersion, deserializeDumpFromFile } from '
 
 // ==================== VERSION ====================
 
-test('nativeVersion() returns 0.2.1', () => {
+test('nativeVersion() returns 0.3.0', () => {
     const version = nativeVersion();
-    assert.equal(version, '0.2.1');
+    assert.equal(version, '0.3.0');
 });
 
 // ==================== COLLECTION ROUNDTRIP ====================
