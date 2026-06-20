@@ -1,7 +1,7 @@
 {
-  "name": "@fastobjectnotation/fon",
-  "version": "0.2.1",
-  "description": "JavaScript/Node.js bindings for FON (Fast Object Notation) via koffi FFI",
+  "name": "FastObjectNotation",
+  "version": "0.3.0",
+  "description": "Fast, human-readable, line-oriented serialization format — a compact alternative to JSON for record-style data",
   "type": "module",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
@@ -22,9 +22,7 @@
   "keywords": [
     "fon",
     "fast-object-notation",
-    "serialization",
-    "ffi",
-    "koffi"
+    "serialization"
   ],
   "license": "MIT",
   "dependencies": {

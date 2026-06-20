@@ -1,5 +1,4 @@
-// Type declarations for @fastobjectnotation/fon
-// Mirrors the C ABI surface exposed by fon_native and wrapped in index.js.
+// Type declarations for FastObjectNotation
 
 /**
  * Wraps a heap-allocated FonCollection handle.
@@ -137,7 +136,7 @@ export class FonDump {
 
 // ---- Exported functions ----
 
-/** Returns the native library version string (e.g. "0.2.1"). */
+/** Returns the native library version string (e.g. "0.3.0"). */
 export function nativeVersion(): string;
 
 /** Enables or disables raw unpack mode for deserialization (global setting). */

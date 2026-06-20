@@ -1,8 +1,8 @@
 'use strict';
 
-// FON JavaScript bindings — koffi FFI over fon_native cdylib.
+// FON (Fast Object Notation) — fast, human-readable, line-oriented serialization.
 //
-// Ownership rules (mirroring NativeBindings.cs XML docs):
+// Ownership rules:
 //   - fon_dump_add(dump, id, collection):  transfers ownership of collection to dump.
 //     Caller MUST NOT free or use the collection handle afterwards.
 //   - fon_collection_add_collection(parent, key, child):  transfers ownership of child
@@ -275,7 +275,7 @@ function serializeHandleToString(ptr, extraArgs, ffiFunc) {
 // ==================== PUBLIC API ====================
 
 /**
- * Returns the native library version string (e.g. "0.2.1").
+ * Returns the native library version string (e.g. "0.3.0").
  * @returns {string}
  */
 function nativeVersion() {

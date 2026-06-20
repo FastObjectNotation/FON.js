@@ -1,9 +1,6 @@
-# FON — Fast Object Notation (JavaScript / Node.js)
+# FON — Fast Object Notation
 
 [![CI](https://github.com/FastObjectNotation/FON.js/actions/workflows/ci.yml/badge.svg)](https://github.com/FastObjectNotation/FON.js/actions/workflows/ci.yml)
-
-JavaScript / Node.js bindings for FON (Fast Object Notation) via
-[koffi](https://koffi.dev) FFI over a pre-built Rust cdylib (`fon_native`).
 
 A fast, human-readable, line-oriented serialization format — a compact
 alternative to JSON for record-style data. Each line is one record; values are
@@ -18,7 +15,6 @@ typed and can nest.
 - **Parallel** dump serialization and deserialization (Rayon-backed, via `maxThreads` arg).
 - **Byte-oriented parsing** — reads straight from raw UTF-8 bytes.
 - **Z85 binary encoding** for raw blobs (5 ASCII chars per 4 bytes).
-- **Zero-copy FFI** — koffi calls directly into the Rust cdylib; no JS parsing layer.
 
 ## Format
 
@@ -57,26 +53,17 @@ Strings are double-quoted with `\n \r \t \b \f \" \\` escapes.
 ## Install
 
 ```bash
-npm install @fastobjectnotation/fon
+npm install FastObjectNotation
 ```
-
-You also need the native cdylib on your PATH or pre-built in `native/target/release/`.
-See [Build](#build) below.
-
-> **GitHub Packages registry:** this package is published to GitHub Packages.
-> Add to your project's `.npmrc`:
-> ```
-> @fastobjectnotation:registry=https://npm.pkg.github.com
-> ```
 
 ## Usage
 
 ### A single record
 
 ```js
-import { FonCollection, nativeVersion } from '@fastobjectnotation/fon';
+import { FonCollection, nativeVersion } from 'FastObjectNotation';
 
-console.log(nativeVersion()); // "0.2.1"
+console.log(nativeVersion()); // "0.3.0"
 
 const col = new FonCollection();
 col.addInt('id', 42)
@@ -102,7 +89,7 @@ parsed.free();
 ### Many records (FonDump)
 
 ```js
-import { FonCollection, FonDump } from '@fastobjectnotation/fon';
+import { FonCollection, FonDump } from 'FastObjectNotation';
 
 const dump = new FonDump();
 
@@ -112,7 +99,7 @@ for (let i = 0; i < 1000; i++) {
     dump.add(BigInt(i), col); // ownership transfers; col.disposed = true
 }
 
-const fon = dump.serialize(0); // 0 = use default Rayon pool
+const fon = dump.serialize(0); // 0 = use default thread pool
 
 const loaded = FonDump.deserialize(fon);
 console.log(loaded.size); // 1000
@@ -134,9 +121,6 @@ loaded.free();
 | `dump.free()` | Releases memory for the dump and all its collections. |
 
 ## Build
-
-The package ships with a git submodule (`native/fon-rust`) that points to the
-FON Rust library. After cloning:
 
 ```bash
 git submodule update --init --recursive
