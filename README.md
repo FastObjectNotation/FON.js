@@ -53,7 +53,7 @@ Strings are double-quoted with `\n \r \t \b \f \" \\` escapes.
 ## Install
 
 ```bash
-npm install FastObjectNotation
+npm install fastobjectnotation
 ```
 
 ## Usage
