@@ -1,6 +1,6 @@
 {
   "name": "FastObjectNotation",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Fast, human-readable, line-oriented serialization format — a compact alternative to JSON for record-style data",
   "type": "module",
   "main": "./src/index.js",
