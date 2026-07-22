@@ -61,9 +61,9 @@ npm install fastobjectnotation
 ### A single record
 
 ```js
-import { FonCollection, nativeVersion } from 'FastObjectNotation';
+import { FonCollection, nativeVersion } from 'fastobjectnotation';
 
-console.log(nativeVersion()); // "0.3.0"
+console.log(nativeVersion()); // the bundled native library version
 
 const col = new FonCollection();
 col.addInt('id', 42)
@@ -89,7 +89,7 @@ parsed.free();
 ### Many records (FonDump)
 
 ```js
-import { FonCollection, FonDump } from 'FastObjectNotation';
+import { FonCollection, FonDump } from 'fastobjectnotation';
 
 const dump = new FonDump();
 
