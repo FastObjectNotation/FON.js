@@ -91,16 +91,18 @@ jobs:
           find dist -type f -exec cp {} prebuilds/ \;
           ls -l prebuilds
 
-      - name: Install npm dependencies
-        run: npm ci
-
       - name: Publish to npm
         run: |
           npm --version
           npm publish
 
+      # gh instead of a third-party action: this job holds the npm publishing identity.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/**/*
-          generate_release_notes: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            $(find dist -type f)
