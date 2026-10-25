@@ -1,6 +1,6 @@
 {
   "name": "fastobjectnotation",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Fast, human-readable, line-oriented serialization format — a compact alternative to JSON for record-style data",
   "type": "module",
   "main": "./src/index.js",
@@ -13,10 +13,11 @@
   },
   "files": [
     "src/index.js",
-    "src/index.d.ts"
+    "src/index.d.ts",
+    "prebuilds/"
   ],
   "scripts": {
-    "test": "node --test test/roundtrip.test.js",
+    "test": "node --expose-gc --test --test-concurrency=1 test/roundtrip.test.js test/strings.test.js test/enumeration.test.js test/mutation.test.js test/views.test.js test/ownership.test.js test/serialize.test.js",
     "build": "cargo build --release --manifest-path native/Cargo.toml"
   },
   "keywords": [

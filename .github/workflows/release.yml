@@ -79,6 +79,13 @@ jobs:
         with:
           path: dist/
 
+      - name: Stage native libraries for the package
+        shell: bash
+        run: |
+          mkdir -p prebuilds
+          find dist -type f -exec cp {} prebuilds/ \;
+          ls -l prebuilds
+
       - name: Install npm dependencies
         run: npm ci
 

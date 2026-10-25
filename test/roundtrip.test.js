@@ -1,7 +1,6 @@
 'use strict';
 
-// Roundtrip integration test using Node.js built-in test runner.
-// Runs through real FFI calls to fon_native.dll.
+// Roundtrip tests through the native fon_native library (design section 6, items 1 and existing).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,9 +11,9 @@ import { FonCollection, FonDump, nativeVersion, deserializeDumpFromFile } from '
 
 // ==================== VERSION ====================
 
-test('nativeVersion() returns 0.3.0', () => {
+test('nativeVersion() returns 0.4.0', () => {
     const version = nativeVersion();
-    assert.equal(version, '0.3.0');
+    assert.equal(version, '0.4.0');
 });
 
 // ==================== COLLECTION ROUNDTRIP ====================
@@ -33,6 +32,128 @@ test('FonCollection: add and get scalar values', () => {
     assert.equal(col.getBool('active'), true);
     assert.equal(col.getLong('timestamp'), 1700000000n);
 
+    col.free();
+});
+
+// ==================== ALL 23 VALUE KINDS (design 6.1) ====================
+
+function fillAllKinds(col) {
+    col.addByte('byteMin', 0)
+        .addByte('byteMax', 255)
+        .addShort('shortMin', -32768)
+        .addShort('shortMax', 32767)
+        .addInt('intMin', -2147483648)
+        .addInt('intMax', 2147483647)
+        .addUInt('uintMin', 0)
+        .addUInt('uintMax', 4294967295)
+        .addLong('longMin', -(2n ** 63n))
+        .addLong('longMax', 2n ** 63n - 1n)
+        .addULong('ulongMin', 0n)
+        .addULong('ulongMax', 2n ** 64n - 1n)
+        .addFloat('floatSpecial', NaN)
+        .addFloat('floatInf', Infinity)
+        .addFloat('floatNegInf', -Infinity)
+        .addDouble('doubleSpecial', -Infinity)
+        .addDouble('doubleNaN', NaN)
+        .addDouble('doubleInf', Infinity)
+        .addDouble('doublePi', Math.PI)
+        .addBool('bool', false)
+        .addString('string', 'hello')
+        .addRaw('raw', Buffer.from([0, 1, 127, 128, 255]))
+        .addByteArray('byteArray', [0, 128, 255])
+        .addShortArray('shortArray', [-32768, 0, 32767])
+        .addIntArray('intArray', [-2147483648, 2147483647])
+        .addUIntArray('uintArray', [0, 4294967295])
+        .addLongArray('longArray', [-(2n ** 63n), 2n ** 63n - 1n])
+        .addULongArray('ulongArray', [0n, 2n ** 64n - 1n])
+        .addFloatArray('floatArray', [NaN, Infinity, -Infinity, 1.5, -0.25])
+        .addDoubleArray('doubleArray', [-Infinity, NaN, Infinity, Math.PI])
+        .addBoolArray('boolArray', [true, false, true])
+        .addStringArray('stringArray', ['a', '', 'c'])
+        .addCollection('nested', makeNestedChild())
+        .addCollectionArray('nestedArray', [makeNestedChild(1), makeNestedChild(2)]);
+}
+
+function makeNestedChild(seed = 0) {
+    const child = new FonCollection();
+    child.addInt('seed', seed);
+    child.addString('label', `child-${seed}`);
+    return child;
+}
+
+function assertAllKinds(col) {
+    assert.equal(col.getByte('byteMin'), 0);
+    assert.equal(col.getByte('byteMax'), 255);
+    assert.equal(col.getShort('shortMin'), -32768);
+    assert.equal(col.getShort('shortMax'), 32767);
+    assert.equal(col.getInt('intMin'), -2147483648);
+    assert.equal(col.getInt('intMax'), 2147483647);
+    assert.equal(col.getUInt('uintMin'), 0);
+    assert.equal(col.getUInt('uintMax'), 4294967295);
+    assert.equal(col.getLong('longMin'), -(2n ** 63n));
+    assert.equal(col.getLong('longMax'), 2n ** 63n - 1n);
+    assert.equal(col.getULong('ulongMin'), 0n);
+    assert.equal(col.getULong('ulongMax'), 2n ** 64n - 1n);
+    assert.ok(Number.isNaN(col.getFloat('floatSpecial')));
+    assert.equal(col.getFloat('floatInf'), Infinity);
+    assert.equal(col.getFloat('floatNegInf'), -Infinity);
+    assert.equal(col.getDouble('doubleSpecial'), -Infinity);
+    assert.ok(Number.isNaN(col.getDouble('doubleNaN')));
+    assert.equal(col.getDouble('doubleInf'), Infinity);
+    assert.equal(col.getDouble('doublePi'), Math.PI);
+    assert.equal(col.getBool('bool'), false);
+    assert.equal(col.getString('string'), 'hello');
+    assert.deepStrictEqual(col.getRaw('raw'), Buffer.from([0, 1, 127, 128, 255]));
+    assert.deepStrictEqual(col.getByteArray('byteArray'), [0, 128, 255]);
+    assert.deepStrictEqual(col.getShortArray('shortArray'), [-32768, 0, 32767]);
+    assert.deepStrictEqual(col.getIntArray('intArray'), [-2147483648, 2147483647]);
+    assert.deepStrictEqual(col.getUIntArray('uintArray'), [0, 4294967295]);
+    assert.deepStrictEqual(col.getLongArray('longArray'), [-(2n ** 63n), 2n ** 63n - 1n]);
+    assert.deepStrictEqual(col.getULongArray('ulongArray'), [0n, 2n ** 64n - 1n]);
+    assert.deepStrictEqual(col.getFloatArray('floatArray'), [NaN, Infinity, -Infinity, 1.5, -0.25]);
+    assert.deepStrictEqual(col.getDoubleArray('doubleArray'), [-Infinity, NaN, Infinity, Math.PI]);
+    assert.deepStrictEqual(col.getBoolArray('boolArray'), [true, false, true]);
+    assert.deepStrictEqual(col.getStringArray('stringArray'), ['a', '', 'c']);
+    assert.equal(col.getCollection('nested').getInt('seed'), 0);
+    assert.equal(col.getCollection('nested').getString('label'), 'child-0');
+    const items = col.getCollectionArray('nestedArray');
+    assert.equal(items.length, 2);
+    assert.equal(items[0].getInt('seed'), 1);
+    assert.equal(items[1].getString('label'), 'child-2');
+}
+
+test('every one of the 23 kinds round-trips through add/get and serialize/deserialize', () => {
+    const col = new FonCollection();
+    fillAllKinds(col);
+    assertAllKinds(col);
+
+    const line = col.serialize();
+    const restored = FonCollection.deserialize(line);
+    assertAllKinds(restored);
+
+    const dump = new FonDump();
+    const dumpCol = new FonCollection();
+    fillAllKinds(dumpCol);
+    dump.add(0n, dumpCol);
+    const dumpRestored = FonDump.deserialize(dump.serialize());
+    assertAllKinds(dumpRestored.get(0n));
+
+    col.free();
+    restored.free();
+    dump.free();
+    dumpRestored.free();
+});
+
+test('kind() reports type names and the array flag for every kind', () => {
+    const col = new FonCollection();
+    fillAllKinds(col);
+    assert.deepStrictEqual(col.kind('byteMin'), { type: 'byte', array: false });
+    assert.deepStrictEqual(col.kind('longMax'), { type: 'long', array: false });
+    assert.deepStrictEqual(col.kind('ulongArray'), { type: 'ulong', array: true });
+    assert.deepStrictEqual(col.kind('raw'), { type: 'raw', array: false });
+    assert.deepStrictEqual(col.kind('nested'), { type: 'object', array: false });
+    assert.deepStrictEqual(col.kind('nestedArray'), { type: 'object', array: true });
+    assert.equal(col.kind('missing'), null);
     col.free();
 });
 
@@ -64,15 +185,14 @@ test('FonDump: build, serialize, deserialize, assert roundtrip', () => {
     const dump2 = FonDump.deserialize(serialized);
     assert.equal(dump2.size, 1);
 
-    // Retrieve the collection at index 0 (borrowed handle).
+    // Retrieve the record view at id 0.
     const col2 = dump2.get(0n);
-    assert.ok(col2 !== null, 'should have a collection at index 0');
+    assert.ok(col2 !== null, 'should have a record at id 0');
 
     assert.equal(col2.getInt('id'), 7);
     assert.equal(col2.getString('name'), 'Test Item');
     assert.ok(Math.abs(col2.getDouble('price') - 99.99) < 1e-6);
 
-    // Free owned dumps (not the borrowed col2 — it is owned by dump2).
     dump.free();
     dump2.free();
 });
@@ -230,7 +350,7 @@ test('FonDump: serializeToFile / deserializeDumpFromFile roundtrip', () => {
         assert.equal(dump2.size, 1);
 
         const col2 = dump2.get(0n);
-        assert.ok(col2 !== null, 'should have a collection at index 0');
+        assert.ok(col2 !== null, 'should have a record at id 0');
         assert.equal(col2.getInt('id'), 99);
         assert.equal(col2.getString('tag'), 'file-test');
         assert.ok(Math.abs(col2.getDouble('score') - 1.5) < 1e-9);
