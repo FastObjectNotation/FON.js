@@ -34,6 +34,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/FastObjectNotation/FON.js.git"
+    "url": "git+https://github.com/FastObjectNotation/FON.js.git"
   }
 }
