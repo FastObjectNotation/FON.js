@@ -343,7 +343,7 @@ fn negative_capacities_are_invalid_arguments() {
     let (k, kl) = key("ints");
     assert_eq!(fon_collection_put_int_array(c, k, kl, ints.as_ptr(), 2, FON_PUT_ADD, &mut new_error()), FON_OK);
     let list: [i64; 1] = [1];
-    let payload: [u8; 1] = [b'x'];
+    let payload: [u8; 1] = *b"x";
     let (k, kl) = key("list");
     assert_eq!(
         fon_collection_put_string_array(c, k, kl, list.as_ptr(), payload.as_ptr(), 1, FON_PUT_ADD, &mut new_error()),
