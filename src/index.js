@@ -99,12 +99,25 @@ function resolveLibPath() {
             return candidate;
         }
     }
+    const platform = `${process.platform}-${process.arch}`;
+    const reason = prebuilt
+        ? `The fon_native library for ${platform} is missing.`
+        : `No fon_native library is shipped for ${platform} (shipped: ${Object.keys(PREBUILT_LIBS).join(', ')}).`;
     throw new Error(
-        `fon_native cdylib not found. Build it first:\n  cargo build --release --manifest-path native/Cargo.toml\n\nSearched:\n${candidates.join('\n')}`
+        `${reason} Build it from a clone of the repository:\n  cargo build --release --manifest-path native/Cargo.toml\n\nSearched:\n${candidates.join('\n')}`
     );
 }
 
-const lib = koffi.load(resolveLibPath());
+function loadLibrary() {
+    const libPath = resolveLibPath();
+    try {
+        return koffi.load(libPath);
+    } catch (cause) {
+        throw new Error(`Failed to load ${libPath} on ${process.platform}-${process.arch}: ${cause.message}`, { cause });
+    }
+}
+
+const lib = loadLibrary();
 
 // ==================== FFI TYPES ====================
 
@@ -311,6 +324,10 @@ function stringBytes(value, label) {
     if (typeof value !== 'string') {
         throw new TypeError(`${label} must be a string`);
     }
+    // A lone surrogate has no UTF-8 form; Buffer.from would store U+FFFD in its place.
+    if (!value.isWellFormed()) {
+        throw new TypeError(`${label} contains a lone surrogate and cannot be written as UTF-8`);
+    }
     return Buffer.from(value, 'utf8');
 }
 
@@ -344,6 +361,22 @@ function checkedNumber(value, label) {
         throw new TypeError(`${label} must be a number`);
     }
     return value;
+}
+
+// A finite number beyond the 32-bit float range would be stored as Infinity.
+function checkedFloat(value) {
+    checkedNumber(value, 'float');
+    if (Number.isFinite(value) && !Number.isFinite(Math.fround(value))) {
+        throw new RangeError(`float must fit in 32 bits, got ${value}`);
+    }
+    return value;
+}
+
+function checkedBool(value) {
+    if (typeof value !== 'boolean') {
+        throw new TypeError('bool must be true or false');
+    }
+    return value ? 1 : 0;
 }
 
 function toUint64(id) {
@@ -1046,7 +1079,7 @@ class FonCollection {
     }
 
     addFloat(key, value) {
-        return putScalar(this, key, FON_PUT_ADD, ffi_fon_collection_put_float, checkedNumber(value, 'float'));
+        return putScalar(this, key, FON_PUT_ADD, ffi_fon_collection_put_float, checkedFloat(value));
     }
 
     addDouble(key, value) {
@@ -1054,7 +1087,7 @@ class FonCollection {
     }
 
     addBool(key, value) {
-        return putScalar(this, key, FON_PUT_ADD, ffi_fon_collection_put_bool, value ? 1 : 0);
+        return putScalar(this, key, FON_PUT_ADD, ffi_fon_collection_put_bool, checkedBool(value));
     }
 
     addString(key, value) {
@@ -1092,7 +1125,7 @@ class FonCollection {
 
     /** @param {string} key @param {number[]} values @returns {this} */
     addFloatArray(key, values) {
-        return putArray(this, key, FON_PUT_ADD, ffi_fon_collection_put_float_array, toTypedArray(Float32Array, values, (v) => checkedNumber(v, 'float'), 'float array'));
+        return putArray(this, key, FON_PUT_ADD, ffi_fon_collection_put_float_array, toTypedArray(Float32Array, values, (v) => checkedFloat(v), 'float array'));
     }
 
     addDoubleArray(key, values) {
@@ -1100,7 +1133,7 @@ class FonCollection {
     }
 
     addBoolArray(key, values) {
-        return putArray(this, key, FON_PUT_ADD, ffi_fon_collection_put_bool_array, toTypedArray(Uint8Array, values, (v) => (v ? 1 : 0), 'bool array'));
+        return putArray(this, key, FON_PUT_ADD, ffi_fon_collection_put_bool_array, toTypedArray(Uint8Array, values, (v) => checkedBool(v), 'bool array'));
     }
 
     addStringArray(key, values) {
@@ -1155,7 +1188,7 @@ class FonCollection {
     }
 
     setFloat(key, value) {
-        return putScalar(this, key, FON_PUT_UPSERT, ffi_fon_collection_put_float, checkedNumber(value, 'float'));
+        return putScalar(this, key, FON_PUT_UPSERT, ffi_fon_collection_put_float, checkedFloat(value));
     }
 
     setDouble(key, value) {
@@ -1163,7 +1196,7 @@ class FonCollection {
     }
 
     setBool(key, value) {
-        return putScalar(this, key, FON_PUT_UPSERT, ffi_fon_collection_put_bool, value ? 1 : 0);
+        return putScalar(this, key, FON_PUT_UPSERT, ffi_fon_collection_put_bool, checkedBool(value));
     }
 
     setString(key, value) {
@@ -1199,7 +1232,7 @@ class FonCollection {
     }
 
     setFloatArray(key, values) {
-        return putArray(this, key, FON_PUT_UPSERT, ffi_fon_collection_put_float_array, toTypedArray(Float32Array, values, (v) => checkedNumber(v, 'float'), 'float array'));
+        return putArray(this, key, FON_PUT_UPSERT, ffi_fon_collection_put_float_array, toTypedArray(Float32Array, values, (v) => checkedFloat(v), 'float array'));
     }
 
     setDoubleArray(key, values) {
@@ -1207,7 +1240,7 @@ class FonCollection {
     }
 
     setBoolArray(key, values) {
-        return putArray(this, key, FON_PUT_UPSERT, ffi_fon_collection_put_bool_array, toTypedArray(Uint8Array, values, (v) => (v ? 1 : 0), 'bool array'));
+        return putArray(this, key, FON_PUT_UPSERT, ffi_fon_collection_put_bool_array, toTypedArray(Uint8Array, values, (v) => checkedBool(v), 'bool array'));
     }
 
     setStringArray(key, values) {

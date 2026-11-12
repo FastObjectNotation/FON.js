@@ -155,7 +155,8 @@ pub extern "C" fn fon_dump_remove_many(dump: *mut c_void, ids: *const u64, count
 }
 
 
-/// Writes the record and tree generations of `id`. Returns 1 if live, 0 if absent.
+/// Writes the record and tree generations of `id` into whichever out-pointers are
+/// non-NULL. Returns 1 if live, 0 if absent.
 #[no_mangle]
 pub extern "C" fn fon_dump_gens(
     dump: *mut c_void,
@@ -163,17 +164,18 @@ pub extern "C" fn fon_dump_gens(
     record_gen: *mut u32,
     tree_gen: *mut u32,
 ) -> i32 {
-    if record_gen.is_null() || tree_gen.is_null() {
-        return 0;
-    }
     let Ok(d) = (unsafe { dump_ref(dump) }) else {
         return 0;
     };
     match (d.record_gen(id), d.tree_gen(id)) {
         (Some(record), Some(tree)) => {
             unsafe {
-                ptr::write(record_gen, record);
-                ptr::write(tree_gen, tree);
+                if !record_gen.is_null() {
+                    ptr::write(record_gen, record);
+                }
+                if !tree_gen.is_null() {
+                    ptr::write(tree_gen, tree);
+                }
             }
             1
         }

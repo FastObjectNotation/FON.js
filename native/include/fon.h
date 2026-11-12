@@ -25,15 +25,23 @@
  *   Every function that accepts a child collection handle (put_collection,
  *   put_collection_array, fon_dump_put) takes ownership of it IF AND ONLY IF it
  *   returns FON_OK. On any error the caller still owns the child and must free it.
- *   The child must be an owned root handle (never a borrowed handle, never the target
- *   itself); the same handle must not appear twice in one children array.
+ *   The child must be an owned root handle (never a borrowed handle); the same handle
+ *   must not appear twice in one children array. A child that is the target itself, or
+ *   that has the target nested anywhere inside it, is rejected with
+ *   FON_ERROR_INVALID_ARGUMENT, because the tree would contain itself.
  *
  * Strings
  *   Every string INPUT is passed as (const uint8_t* ptr, int64_t len): UTF-8, not
  *   NUL-terminated, may contain U+0000. len == 0 means the empty string and ptr may then
- *   be NULL. Invalid UTF-8 -> FON_ERROR_INVALID_ARGUMENT.
+ *   be NULL. Invalid UTF-8 -> FON_ERROR_INVALID_ARGUMENT (functions without an err
+ *   parameter report it through their return value, as their comments say).
  *   Every string OUTPUT uses the size-query pattern below and is written WITHOUT a NUL
  *   terminator. Only fon_version() returns a NUL-terminated C string.
+ *
+ * Keys
+ *   A new key may not contain = " { } [ ] CR or LF and may not start with a comma: keys
+ *   are written without escaping. Such a key is rejected with FON_ERROR_INVALID_ARGUMENT
+ *   when it is added. A put on a key that already exists does not check it again.
  *
  * Size-query pattern (string, raw, array and handle-array getters)
  *   (T* buffer, int64_t capacity, int64_t* actual)
@@ -47,8 +55,9 @@
  * Multi-string pattern (fon_collection_keys, fon_collection_get_string_array)
  *   (int64_t* lengths, int64_t lengths_capacity, uint8_t* bytes, int64_t bytes_capacity,
  *    int64_t* count, int64_t* total_bytes)
- *   - `count` and `total_bytes` must be non-NULL and always receive the item count and
- *     the sum of all item byte lengths.
+ *   - `count` and `total_bytes` must be non-NULL; on FON_OK and on
+ *     FON_ERROR_BUFFER_TOO_SMALL they receive the item count and the sum of all item
+ *     byte lengths. On any other error they are left unchanged.
  *   - lengths == NULL or bytes == NULL (when total_bytes > 0): size query, FON_OK.
  *   - lengths_capacity < count or bytes_capacity < total_bytes: FON_ERROR_BUFFER_TOO_SMALL.
  *   - otherwise lengths[i] = byte length of item i, and items are written back to back
@@ -60,12 +69,24 @@
  *   fon_buffer_free(NULL, 0) is a no-op.
  *
  * Errors
- *   Functions returning int32_t return a FON_* code; on failure they fill *err (err may
- *   be NULL). Functions returning a handle return NULL on failure and fill *err.
+ *   Functions that take an err parameter and return int32_t return a FON_* code; on
+ *   failure they fill *err (err may be NULL). Functions returning a handle return NULL
+ *   on failure and fill *err. Functions without an err parameter (remove, kind_of,
+ *   fon_dump_remove[_many], fon_dump_gens, fon_dump_touch) return the value their
+ *   comment describes and treat a NULL handle or an invalid argument as "nothing there".
+ *
+ * Nesting depth
+ *   The parser accepts at most fon_set_max_depth levels of nesting, and never more than
+ *   128. A tree built with put_collection can be deeper: it is written without an error
+ *   but cannot be read back, and thousands of levels can exhaust the stack in serialize,
+ *   clone and free.
  *
  * Threading
- *   Configuration setters are thread-safe. A dump or collection must not be mutated
- *   concurrently with any other access to the same tree.
+ *   Configuration setters are thread-safe. Several threads may read the same tree at
+ *   once only through pure reads: size, kind_of, keys, the scalar, string, raw and array
+ *   getters, fon_dump_size, fon_dump_ids, fon_dump_gens and the serialize functions.
+ *   Every other call, including fon_dump_get and the getters that return borrowed
+ *   collection handles, needs exclusive access to the whole tree.
  */
 
 #ifndef FON_H
@@ -82,8 +103,8 @@ extern "C" {
 /* ==================== RESULT CODES ==================== */
 
 #define FON_OK                      0
-#define FON_ERROR_FILE_NOT_FOUND    1
-#define FON_ERROR_PARSE_FAILED      2
+#define FON_ERROR_FILE_NOT_FOUND    1   /* the file does not exist or cannot be read */
+#define FON_ERROR_PARSE_FAILED      2   /* the text is not valid FON, or is not valid UTF-8 */
 #define FON_ERROR_WRITE_FAILED      3
 #define FON_ERROR_INVALID_ARGUMENT  4
 #define FON_ERROR_BUFFER_TOO_SMALL  5
@@ -101,7 +122,8 @@ extern "C" {
 
 
 /* ==================== VALUE KINDS ==================== */
-/* kind = type char | (is_array ? FON_KIND_ARRAY : 0); -1 = key absent */
+/* kind = type char | (is_array ? FON_KIND_ARRAY : 0); -1 = key absent (also returned for
+ * a NULL collection and for a key that is not valid UTF-8) */
 
 #define FON_TYPE_BYTE    'e'   /* uint8_t  */
 #define FON_TYPE_SHORT   't'   /* int16_t  */
@@ -128,9 +150,9 @@ typedef struct FonError {
 
 /* ==================== VERSION / CONFIG / BUFFERS ==================== */
 
-const char* fon_version(void);                 /* static, NUL-terminated, e.g. "0.4.0" */
+const char* fon_version(void);                 /* static, NUL-terminated, e.g. "0.5.0" */
 void        fon_set_raw_unpack(int32_t enable);  /* decode raw blobs during parse */
-void        fon_set_max_depth(int32_t depth);    /* clamped to >= 1; default 64 */
+void        fon_set_max_depth(int32_t depth);    /* clamped to >= 1; default 64; above 128 acts as 128 */
 void        fon_buffer_free(uint8_t* ptr, int64_t len);
 
 
@@ -143,8 +165,9 @@ void*   fon_collection_clone(void* collection, FonError* err);   /* deep copy, O
 
 int32_t fon_collection_kind_of(void* collection, const uint8_t* key, int64_t key_len);
 
-/* Keys in insertion order (multi-string pattern). `kinds` may be NULL; when non-NULL
- * and lengths_capacity >= count, kinds[i] receives the kind of key i. */
+/* Keys in insertion order (multi-string pattern). `kinds` may be NULL. When non-NULL it
+ * must hold at least `count` entries, the count a size query on the unchanged collection
+ * reports; kinds[i] receives the kind of key i, and only when the keys are written. */
 int32_t fon_collection_keys(void* collection,
                             int64_t* lengths, int64_t lengths_capacity,
                             uint8_t* bytes, int64_t bytes_capacity,
@@ -152,7 +175,7 @@ int32_t fon_collection_keys(void* collection,
                             int64_t* count, int64_t* total_bytes,
                             FonError* err);
 
-/* 1 = removed, 0 = absent (or NULL collection). */
+/* 1 = removed, 0 = absent (also for a NULL collection or a key that is not valid UTF-8). */
 int32_t fon_collection_remove(void* collection, const uint8_t* key, int64_t key_len);
 
 
@@ -180,7 +203,8 @@ int32_t fon_collection_put_float_array (void* c, const uint8_t* key, int64_t key
 int32_t fon_collection_put_double_array(void* c, const uint8_t* key, int64_t key_len, const double*   values, int64_t count, int32_t mode, FonError* err);
 int32_t fon_collection_put_bool_array  (void* c, const uint8_t* key, int64_t key_len, const uint8_t*  values, int64_t count, int32_t mode, FonError* err);   /* 0 / non-zero */
 
-/* Items given as lengths[count] plus all item bytes back to back in `bytes`. */
+/* Items given as lengths[count] plus all item bytes back to back in `bytes`. `bytes`
+ * must hold at least the sum of the lengths: the library has no way to check that. */
 int32_t fon_collection_put_string_array(void* c, const uint8_t* key, int64_t key_len,
                                         const int64_t* lengths, const uint8_t* bytes, int64_t count,
                                         int32_t mode, FonError* err);
@@ -205,7 +229,8 @@ int32_t fon_collection_get_float (void* c, const uint8_t* key, int64_t key_len, 
 int32_t fon_collection_get_double(void* c, const uint8_t* key, int64_t key_len, double*   out, FonError* err);
 int32_t fon_collection_get_bool  (void* c, const uint8_t* key, int64_t key_len, int32_t*  out, FonError* err);
 
-/* Size-query pattern. get_raw returns decoded bytes even if the blob is stored Z85-packed. */
+/* Size-query pattern. get_raw returns decoded bytes even if the blob is stored Z85-packed;
+ * a blob whose stored text is not valid Z85 fails here with FON_ERROR_PARSE_FAILED. */
 int32_t fon_collection_get_string(void* c, const uint8_t* key, int64_t key_len, uint8_t* buffer, int64_t capacity, int64_t* actual, FonError* err);
 int32_t fon_collection_get_raw   (void* c, const uint8_t* key, int64_t key_len, uint8_t* buffer, int64_t capacity, int64_t* actual, FonError* err);
 
@@ -250,17 +275,26 @@ void*   fon_dump_get(void* dump, uint64_t id);
 int32_t fon_dump_put(void* dump, uint64_t id, void* collection, int32_t mode, FonError* err);
 
 int32_t fon_dump_remove(void* dump, uint64_t id);                              /* 1 removed, 0 absent */
-int64_t fon_dump_remove_many(void* dump, const uint64_t* ids, int64_t count);  /* live records removed */
+/* Live records removed; absent and repeated ids are not counted. 0 also for a NULL dump,
+ * a negative count, or NULL ids with a non-zero count. */
+int64_t fon_dump_remove_many(void* dump, const uint64_t* ids, int64_t count);
 
 /* View validation. record_gen changes when the record is removed/replaced; tree_gen
- * changes on fon_dump_touch. Return 1 (live, gens written) or 0 (absent). */
+ * changes on fon_dump_touch. Return 1 (live) or 0 (absent). When live, the generations
+ * are written into whichever of the two out-pointers is non-NULL. A dump that was loaded
+ * and never changed reports generation 0 for every record. */
 int32_t fon_dump_gens(void* dump, uint64_t id, uint32_t* record_gen, uint32_t* tree_gen);
 /* Call after any put/remove on a collection inside record `id`. 1 live, 0 absent. */
 int32_t fon_dump_touch(void* dump, uint64_t id);
 
 
 /* ==================== SERIALIZE / DESERIALIZE ==================== */
-/* max_threads <= 0 uses all cores; > 0 caps the worker threads for this call. */
+/* max_threads <= 0 uses all cores; > 0 caps the worker threads for this call.
+ *
+ * A dump is one record per line; the 0-based line index is the record id, so an empty
+ * line is an empty record. Lines end with LF, CR LF or CR. Parsing is strict: malformed
+ * text is FON_ERROR_PARSE_FAILED, and for a dump the message starts with "line N: ".
+ * fon_deserialize_collection takes one record and accepts one trailing line end. */
 
 int32_t fon_serialize_dump(void* dump, int32_t max_threads, uint8_t** out, int64_t* out_len, FonError* err);
 int32_t fon_serialize_collection(void* collection, uint8_t** out, int64_t* out_len, FonError* err);

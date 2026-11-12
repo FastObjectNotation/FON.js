@@ -6,12 +6,11 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   build-native:
-    name: Build cdylib (${{ matrix.os }})
+    name: Build and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -34,6 +33,16 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Check that the tag matches the package and the native library
+        shell: bash
+        run: |
+          PACKAGE=$(grep -m1 -oE '"version": "[^"]+"' package.json | cut -d'"' -f4)
+          NATIVE=$(grep -m1 -oE '^version = "[^"]+"' native/Cargo.toml | cut -d'"' -f2)
+          if [ "v$PACKAGE" != "$GITHUB_REF_NAME" ] || [ "$PACKAGE" != "$NATIVE" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, package.json $PACKAGE and native/Cargo.toml $NATIVE do not agree"
+            exit 1
+          fi
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -44,6 +53,18 @@ jobs:
 
       - name: Build cdylib
         run: cargo build --release --manifest-path native/Cargo.toml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
 
       - name: Stage artifact
         shell: bash
@@ -57,10 +78,46 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: dist/${{ matrix.artifact_name }}
 
+  # Installs the tarball exactly as a user would and loads the shipped library from it.
+  verify-package:
+    name: Install and load the packed tarball
+    runs-on: ubuntu-latest
+    needs: build-native
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Stage native libraries for the package
+        shell: bash
+        run: |
+          mkdir -p prebuilds
+          find dist -type f -exec cp {} prebuilds/ \;
+
+      - name: Pack, install and load
+        shell: bash
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/smoke"
+          cd "$RUNNER_TEMP/smoke"
+          npm init -y > /dev/null
+          npm install "$RUNNER_TEMP"/fastobjectnotation-*.tgz
+          node --input-type=module -e "import { FonCollection, nativeVersion } from 'fastobjectnotation'; const c = new FonCollection().addInt('id', 42); if (c.getInt('id') !== 42) { process.exit(1); } console.log('loaded native', nativeVersion());"
+
   publish:
     name: Publish to npm & create Release
     runs-on: ubuntu-latest
-    needs: build-native
+    needs: [build-native, verify-package]
     # npm trusted publishing: the job's OIDC token authenticates `npm publish`, no npm token.
     permissions:
       contents: write

@@ -21,7 +21,17 @@ typed and can nest.
 ## Format
 
 Each line is one record: a comma-separated list of `key=type:value` pairs. A
-`.fon` file is a sequence of records, indexed by line number (0-based).
+`.fon` file is a sequence of records, indexed by line number (0-based), so an
+empty line is an empty record.
+
+Parsing is strict: malformed text is an error, never a guess. An integer with
+trailing characters, a bool other than `0` or `1`, a missing, doubled or
+trailing comma, a repeated key and an unknown escape are all rejected, and an
+error in a dump names the line (`line 12: ...`).
+
+Values are stored as given or not at all: a string or key with a lone
+surrogate and a bool that is not `true` or `false` throw `TypeError`, and a
+finite number outside the 32-bit float range throws `RangeError`.
 
 ```
 name=s:"John",age=i:30,balance=d:1234.56
@@ -210,7 +220,7 @@ const parsed = FonCollection.deserialize(line);
 console.log(parsed.getRaw('blob')); // <Buffer 01 02 03 04>
 
 setRawUnpack(true); // decode blobs while parsing (default: decoded when read)
-setMaxDepth(128);   // nesting limit while parsing (default 64, minimum 1)
+setMaxDepth(128);   // nesting limit while parsing (default 64, minimum 1, at most 128)
 
 col.free();
 parsed.free();
@@ -336,13 +346,13 @@ Other members:
 |--------------------------------------------------|-------------|
 | `nativeVersion()`                                | Version of the native library, e.g. `"0.4.0"`. |
 | `setRawUnpack(value)`                            | Decodes raw blobs while parsing. Process-wide; off by default. |
-| `setMaxDepth(depth)`                             | Maximum nesting depth while parsing. Process-wide; default 64, minimum 1. |
+| `setMaxDepth(depth)`                             | Maximum nesting depth while parsing. Process-wide; default 64, minimum 1, at most 128. |
 | `deserializeDumpFromFile(path, maxThreads)`      | Same as `FonDump.deserializeFromFile`. |
 | `FonError`                                       | Error with a `code` property; see Memory and lifetime for the codes. |
 
 ## Build and test
 
-Requires a stable Rust toolchain and Node.js 18 or later.
+Requires a stable Rust toolchain and Node.js 20.10 or later.
 
 ```bash
 git submodule update --init --recursive

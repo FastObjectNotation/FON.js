@@ -11,9 +11,11 @@ import { FonCollection, FonDump, nativeVersion, deserializeDumpFromFile } from '
 
 // ==================== VERSION ====================
 
-test('nativeVersion() returns 0.4.0', () => {
-    const version = nativeVersion();
-    assert.equal(version, '0.4.0');
+test('nativeVersion() is the version of the native crate in this repository', () => {
+    const manifest = fs.readFileSync(new URL('../native/Cargo.toml', import.meta.url), 'utf8');
+    const declared = /^version = "([^"]+)"/m.exec(manifest)[1];
+    assert.match(declared, /^\d+\.\d+\.\d+$/);
+    assert.equal(nativeVersion(), declared);
 });
 
 // ==================== COLLECTION ROUNDTRIP ====================

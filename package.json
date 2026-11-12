@@ -1,6 +1,6 @@
 {
   "name": "fastobjectnotation",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Fast, human-readable, line-oriented serialization format — a compact alternative to JSON for record-style data",
   "type": "module",
   "main": "./src/index.js",
@@ -17,7 +17,7 @@
     "prebuilds/"
   ],
   "scripts": {
-    "test": "node --expose-gc --test --test-concurrency=1 test/roundtrip.test.js test/strings.test.js test/enumeration.test.js test/mutation.test.js test/views.test.js test/ownership.test.js test/serialize.test.js",
+    "test": "node --expose-gc --test --test-concurrency=1 test/roundtrip.test.js test/strings.test.js test/enumeration.test.js test/mutation.test.js test/views.test.js test/ownership.test.js test/serialize.test.js test/strict.test.js",
     "build": "cargo build --release --manifest-path native/Cargo.toml"
   },
   "keywords": [
@@ -30,7 +30,7 @@
     "koffi": "^2.9.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.10.0"
   },
   "repository": {
     "type": "git",

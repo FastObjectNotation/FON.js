@@ -4,6 +4,7 @@
 
 use std::collections::HashSet;
 use std::ffi::c_void;
+use std::ptr;
 
 use fon::types::{FonCollection, FonValue};
 
@@ -13,14 +14,53 @@ use crate::error::{
 };
 
 
+/// True when `target` is `root` itself or one of the collections nested anywhere inside
+/// it. Putting `root` into such a target would make the tree contain itself. The walk
+/// uses a work list, not recursion, and compares addresses without forming a reference
+/// to `target`, which the caller holds mutably.
+unsafe fn holds(root: *const FonCollection, target: *const FonCollection) -> bool {
+    if root == target {
+        return true;
+    }
+    let mut pending: Vec<*const FonCollection> = vec![root];
+    while let Some(current) = pending.pop() {
+        for (_, value) in (*current).iter() {
+            match value {
+                FonValue::Object(child) => {
+                    let nested: *const FonCollection = ptr::addr_of!(**child);
+                    if nested == target {
+                        return true;
+                    }
+                    pending.push(nested);
+                }
+                FonValue::ObjectArray(children) => {
+                    for child in children {
+                        let nested: *const FonCollection = ptr::addr_of!(**child);
+                        if nested == target {
+                            return true;
+                        }
+                        pending.push(nested);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
+
+const CYCLE_MESSAGE: &str = "a collection cannot be put into itself or into a collection nested inside it";
+
+
 /// Validates a child handle and takes ownership of it. Runs only after the put
 /// checks pass, so a rejected child is never consumed.
 unsafe fn take_child(child: *mut c_void, target: *mut c_void) -> Result<FonValue, Failure> {
     if child.is_null() {
         return Err(invalid("child collection is null"));
     }
-    if child == target {
-        return Err(invalid("a collection cannot be put into itself"));
+    if holds(child as *const FonCollection, target as *const FonCollection) {
+        return Err(invalid(CYCLE_MESSAGE));
     }
     Ok(FonValue::Object(Box::from_raw(child as *mut FonCollection)))
 }
@@ -38,8 +78,8 @@ unsafe fn take_children(
         if handle.is_null() {
             return Err(invalid("child collection is null"));
         }
-        if handle == target {
-            return Err(invalid("a collection cannot be put into itself"));
+        if holds(handle as *const FonCollection, target as *const FonCollection) {
+            return Err(invalid(CYCLE_MESSAGE));
         }
         if !seen.insert(handle as usize) {
             return Err(invalid("the same child collection appears twice"));

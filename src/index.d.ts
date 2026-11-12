@@ -158,8 +158,8 @@ export class FonCollection {
     getDouble(key: string): number;
     getBool(key: string): boolean;
     getString(key: string): string;
-    /** Returns a Buffer with the stored bytes. */
-    getRaw(key: string): Buffer;
+    /** Returns the stored bytes (a Node.js Buffer, which is a Uint8Array). */
+    getRaw(key: string): Uint8Array;
 
     getByteArray(key: string): number[];
     getShortArray(key: string): number[];

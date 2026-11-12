@@ -57,7 +57,8 @@ impl From<CoreError> for Failure {
         let code: i32 = match &error {
             CoreError::Parse(_) => FON_ERROR_PARSE_FAILED,
             CoreError::Write(_) => FON_ERROR_WRITE_FAILED,
-            CoreError::InvalidArgument(_) => FON_ERROR_INVALID_ARGUMENT,
+            CoreError::Io(_) => FON_ERROR_FILE_NOT_FOUND,
+            _ => FON_ERROR_INVALID_ARGUMENT,
         };
         Failure::new(code, error.to_string())
     }
@@ -122,6 +123,7 @@ pub(crate) unsafe fn handle_or_report<T>(
 
 
 /// Reads a `(data, count)` argument as a slice. A zero count accepts a NULL pointer.
+/// A count whose byte size no slice can have is rejected before the slice is built.
 pub(crate) unsafe fn slice_arg<'a, T>(data: *const T, count: i64) -> Result<&'a [T], Failure> {
     if count < 0 {
         return Err(invalid(format!("negative length {count}")));
@@ -132,7 +134,15 @@ pub(crate) unsafe fn slice_arg<'a, T>(data: *const T, count: i64) -> Result<&'a 
     if data.is_null() {
         return Err(invalid("null pointer with a non-zero length"));
     }
-    Ok(slice::from_raw_parts(data, count as usize))
+    let fits: Option<usize> = usize::try_from(count).ok().filter(|items| {
+        items
+            .checked_mul(std::mem::size_of::<T>())
+            .is_some_and(|bytes| bytes <= isize::MAX as usize)
+    });
+    match fits {
+        Some(items) => Ok(slice::from_raw_parts(data, items)),
+        None => Err(invalid(format!("length {count} is too large"))),
+    }
 }
 
 

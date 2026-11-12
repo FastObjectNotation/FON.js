@@ -6,9 +6,7 @@ use std::ffi::c_void;
 use fon::types::FonValue;
 
 use crate::collection::{put_field, read_as};
-use crate::error::{
-    finish, invalid, slice_arg, to_i64, write_multi, write_sized, Failure, FonError,
-};
+use crate::error::{finish, invalid, slice_arg, write_multi, write_sized, Failure, FonError};
 
 
 macro_rules! put_array {
@@ -159,7 +157,9 @@ unsafe fn read_string_items(
             .ok_or_else(|| invalid("string array payload too large"))?;
         sizes.push(size);
     }
-    let payload: &[u8] = slice_arg(bytes, to_i64(total))?;
+    let payload_len: i64 =
+        i64::try_from(total).map_err(|_| invalid("string array payload too large"))?;
+    let payload: &[u8] = slice_arg(bytes, payload_len)?;
     let mut rest: &[u8] = payload;
     let mut items: Vec<String> = Vec::with_capacity(sizes.len());
     for size in sizes {

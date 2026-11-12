@@ -787,6 +787,93 @@ fn self_null_and_duplicate_children_are_rejected() {
 
 
 #[test]
+fn a_collection_cannot_be_put_into_its_own_descendant() {
+    let root: *mut c_void = fon_collection_create();
+    let middle: *mut c_void = fon_collection_create();
+    let leaf: *mut c_void = fon_collection_create();
+    let (k, kl) = key("leaf");
+    assert_eq!(fon_collection_put_collection(middle, k, kl, leaf, FON_PUT_ADD, &mut new_error()), FON_OK);
+    let (k, kl) = key("middle");
+    assert_eq!(fon_collection_put_collection(root, k, kl, middle, FON_PUT_ADD, &mut new_error()), FON_OK);
+
+    let middle_view: *mut c_void = fon_collection_get_collection(root, k, kl, &mut new_error());
+    let (k, kl) = key("leaf");
+    let leaf_view: *mut c_void = fon_collection_get_collection(middle_view, k, kl, &mut new_error());
+    assert!(!leaf_view.is_null());
+
+    let mut error: FonError = new_error();
+    let (k, kl) = key("back");
+    assert_eq!(
+        fon_collection_put_collection(leaf_view, k, kl, root, FON_PUT_ADD, &mut error),
+        FON_ERROR_INVALID_ARGUMENT
+    );
+    assert!(message_of(&error).contains("nested inside it"));
+    assert_eq!(
+        fon_collection_put_collection(middle_view, k, kl, root, FON_PUT_UPSERT, &mut error),
+        FON_ERROR_INVALID_ARGUMENT
+    );
+
+    let other: *mut c_void = fon_collection_create();
+    let children: [*mut c_void; 2] = [other, root];
+    assert_eq!(
+        fon_collection_put_collection_array(leaf_view, k, kl, children.as_ptr(), 2, FON_PUT_ADD, &mut error),
+        FON_ERROR_INVALID_ARGUMENT
+    );
+    assert_eq!(fon_collection_size(leaf_view), 0);
+    assert_eq!(fon_collection_size(other), 0);
+
+    // The tree is unchanged, still finite and still owned by the caller.
+    let mut out: *mut u8 = ptr::null_mut();
+    let mut out_len: i64 = 0;
+    assert_eq!(fon_serialize_collection(root, &mut out, &mut out_len, &mut new_error()), FON_OK);
+    let text: String = unsafe { String::from_utf8_lossy(std::slice::from_raw_parts(out, out_len as usize)).into_owned() };
+    assert_eq!(text, "middle=o:{leaf=o:{}}");
+    fon_buffer_free(out, out_len);
+    fon_collection_free(other);
+    fon_collection_free(root);
+}
+
+
+#[test]
+fn oversized_lengths_are_invalid_arguments() {
+    let collection: *mut c_void = fon_collection_create();
+    let (k, kl) = key("v");
+    let mut error: FonError = new_error();
+
+    let values: [i64; 1] = [1];
+    assert_eq!(
+        fon_collection_put_long_array(collection, k, kl, values.as_ptr(), i64::MAX / 2, FON_PUT_ADD, &mut error),
+        FON_ERROR_INVALID_ARGUMENT
+    );
+    assert!(message_of(&error).contains("too large"));
+
+    let lengths: [i64; 2] = [i64::MAX, 1];
+    let bytes: [u8; 4] = *b"abcd";
+    assert_eq!(
+        fon_collection_put_string_array(collection, k, kl, lengths.as_ptr(), bytes.as_ptr(), 2, FON_PUT_ADD, &mut error),
+        FON_ERROR_INVALID_ARGUMENT
+    );
+    assert_eq!(fon_collection_size(collection), 0);
+
+    let dump: *mut c_void = fon_dump_create();
+    let ids: [u64; 1] = [0];
+    assert_eq!(fon_dump_remove_many(dump, ids.as_ptr(), i64::MAX / 2), 0);
+    fon_dump_free(dump);
+    fon_collection_free(collection);
+}
+
+
+#[test]
+fn a_key_may_not_start_with_a_comma() {
+    let collection: *mut c_void = fon_collection_create();
+    assert_eq!(put_int(collection, ",a", 1, FON_PUT_ADD), FON_ERROR_INVALID_ARGUMENT);
+    assert_eq!(put_int(collection, "a,b", 1, FON_PUT_ADD), FON_OK);
+    assert_eq!(fon_collection_size(collection), 1);
+    fon_collection_free(collection);
+}
+
+
+#[test]
 fn collection_arrays_transfer_all_children_and_expose_borrowed_handles() {
     let parent: *mut c_void = fon_collection_create();
     let first: *mut c_void = fon_collection_create();
@@ -897,6 +984,87 @@ fn dump_get_set_and_generations() {
     assert_eq!(fon_dump_gens(dump, 3, &mut touched_record, &mut touched_tree), 0);
     assert_eq!(fon_dump_touch(dump, 3), 0);
     fon_dump_free(dump);
+}
+
+
+#[test]
+fn dump_gens_reports_a_live_record_through_null_out_pointers() {
+    let dump: *mut c_void = fon_dump_create();
+    let record: *mut c_void = fon_collection_create();
+    assert_eq!(fon_dump_put(dump, 0, record, FON_PUT_ADD, &mut new_error()), FON_OK);
+
+    assert_eq!(fon_dump_gens(dump, 0, ptr::null_mut(), ptr::null_mut()), 1);
+    assert_eq!(fon_dump_gens(dump, 1, ptr::null_mut(), ptr::null_mut()), 0);
+    assert_eq!(fon_dump_touch(dump, 0), 1);
+    let mut tree_gen: u32 = 99;
+    assert_eq!(fon_dump_gens(dump, 0, ptr::null_mut(), &mut tree_gen), 1);
+    assert_eq!(tree_gen, 1);
+    fon_dump_free(dump);
+}
+
+
+#[test]
+fn dump_upsert_adds_an_absent_id_and_replaces_a_live_one() {
+    let record_with = |value: i32| -> *mut c_void {
+        let record: *mut c_void = fon_collection_create();
+        assert_eq!(put_int(record, "n", value, FON_PUT_ADD), FON_OK);
+        record
+    };
+
+    let dump: *mut c_void = fon_dump_create();
+    assert_eq!(fon_dump_put(dump, 7, record_with(1), FON_PUT_UPSERT, &mut new_error()), FON_OK);
+    assert_eq!(fon_dump_put(dump, 7, record_with(2), FON_PUT_UPSERT, &mut new_error()), FON_OK);
+    assert_eq!(dump_ids(dump), vec![7]);
+    assert_eq!(read_int(fon_dump_get(dump, 7), "n"), Ok(2));
+    fon_dump_free(dump);
+
+    // The same on a dump that was loaded from text.
+    let text: &[u8] = b"n=i:0\nn=i:1\nn=i:2\n";
+    let loaded: *mut c_void = fon_deserialize_dump(text.as_ptr(), to_i64(text.len()), 1, &mut new_error());
+    assert!(!loaded.is_null());
+    assert_eq!(fon_dump_put(loaded, 1, record_with(9), FON_PUT_UPSERT, &mut new_error()), FON_OK);
+    assert_eq!(fon_dump_put(loaded, 3, record_with(5), FON_PUT_UPSERT, &mut new_error()), FON_OK);
+    assert_eq!(dump_ids(loaded), vec![0, 1, 2, 3]);
+    assert_eq!(read_int(fon_dump_get(loaded, 0), "n"), Ok(0));
+    assert_eq!(read_int(fon_dump_get(loaded, 1), "n"), Ok(9));
+    assert_eq!(read_int(fon_dump_get(loaded, 3), "n"), Ok(5));
+    fon_dump_free(loaded);
+}
+
+
+#[test]
+fn strict_parsing_empty_records_and_line_numbers_reach_the_caller() {
+    let mut error: FonError = new_error();
+
+    let hang: &[u8] = b"a=i:1\na=b:[[]]\n";
+    assert!(fon_deserialize_dump(hang.as_ptr(), to_i64(hang.len()), 0, &mut error).is_null());
+    assert_eq!(error.code, FON_ERROR_PARSE_FAILED);
+    assert!(message_of(&error).starts_with("line 2: "), "{}", message_of(&error));
+
+    let junk: &[u8] = b"a=i:12abc";
+    assert!(fon_deserialize_collection(junk.as_ptr(), to_i64(junk.len()), &mut error).is_null());
+    assert_eq!(error.code, FON_ERROR_PARSE_FAILED);
+
+    let with_gap: &[u8] = b"a=i:1\n\nb=i:2\n";
+    let dump: *mut c_void = fon_deserialize_dump(with_gap.as_ptr(), to_i64(with_gap.len()), 0, &mut error);
+    assert!(!dump.is_null());
+    assert_eq!(dump_ids(dump), vec![0, 1, 2]);
+    assert_eq!(fon_collection_size(fon_dump_get(dump, 1)), 0);
+    assert_eq!(read_int(fon_dump_get(dump, 2), "b"), Ok(2));
+
+    let mut out: *mut u8 = ptr::null_mut();
+    let mut out_len: i64 = 0;
+    assert_eq!(fon_serialize_dump(dump, 0, &mut out, &mut out_len, &mut error), FON_OK);
+    let text: &[u8] = unsafe { std::slice::from_raw_parts(out, out_len as usize) };
+    assert_eq!(text, with_gap);
+    fon_buffer_free(out, out_len);
+    fon_dump_free(dump);
+
+    let with_mark: &[u8] = b"\xEF\xBB\xBFa=i:1\n";
+    let record: *mut c_void = fon_deserialize_collection(with_mark.as_ptr(), to_i64(with_mark.len()), &mut error);
+    assert!(!record.is_null());
+    assert_eq!(read_int(record, "a"), Ok(1));
+    fon_collection_free(record);
 }
 
 
